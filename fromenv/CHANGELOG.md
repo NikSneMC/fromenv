@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- [`same_name_method`](https://rust-lang.github.io/rust-clippy/master/index.html#same_name_method) clippy lint
+
 ## [0.1.0](https://github.com/ollyswanson/fromenv/releases/tag/fromenv-v0.1.0) - 2025-08-10
 
 ### Added
