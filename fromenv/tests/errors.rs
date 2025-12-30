@@ -71,6 +71,7 @@ fn missing_value_error() {
     #[derive(FromEnv, Debug)]
     #[allow(unused)]
     pub struct Config {
+        #[env(ignored)]
         missing: String,
     }
 
