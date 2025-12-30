@@ -34,14 +34,17 @@ fn impl_derive(input: DeriveInput) -> darling::Result<TokenStream> {
 }
 
 #[derive(FromDeriveInput)]
-#[darling(supports(struct_named))]
+#[darling(attributes(env), supports(struct_named))]
 struct FromEnvReceiver {
+    #[darling(default)]
+    pub prefix: Option<String>,
     pub ident: Ident,
     pub vis: Visibility,
     pub data: Data<(), FromEnvFieldReceiver>,
 }
 
 struct ConstTokens {
+    prefix: String,
     private_path: TokenStream,
     errors_ident: TokenStream,
     builder_name: Ident,
@@ -50,6 +53,7 @@ struct ConstTokens {
 impl ToTokens for FromEnvReceiver {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let consts = ConstTokens {
+            prefix: self.prefix.clone().unwrap_or("".to_string()),
             builder_name: format_ident!("{}Builder", self.ident),
             private_path: quote!(__fromenv::__private),
             errors_ident: quote!(__fromenv_derive_builder_errors),
@@ -139,6 +143,7 @@ impl FromEnvReceiver {
     }
 
     fn impl_from_env(&self, consts: &ConstTokens) -> TokenStream {
+        let prefix = &consts.prefix;
         let struct_name = &self.ident;
         let builder_name = &consts.builder_name;
         let private_path = &consts.private_path;
@@ -167,11 +172,16 @@ impl FromEnvReceiver {
                     }
                 }
                 EnvAttribute::Flat {
+                    name,
                     from,
                     default,
                     with: _,
                 } => {
-                    let from = from.value();
+                    let name = name.value().to_uppercase();
+                    let from = from
+                        .as_ref()
+                        .map(|from| from.value())
+                        .unwrap_or_else(|| format!("{prefix}{name}"));
                     let default = default
                         .as_ref()
                         .map(|default| default.value())
@@ -204,6 +214,7 @@ impl FromEnvReceiver {
     }
 
     fn impl_from_env_builder(&self, consts: &ConstTokens) -> TokenStream {
+        let prefix = &consts.prefix;
         let struct_name = &self.ident;
         let private_path = &consts.private_path;
         let errors_ident = &consts.errors_ident;
@@ -244,6 +255,7 @@ impl FromEnvReceiver {
                 // #[config(env = "...", default = ...)] field: T
                 (
                     EnvAttribute::Flat {
+                        name,
                         from,
                         with,
                         default: Some(default),
@@ -251,6 +263,11 @@ impl FromEnvReceiver {
                     false,
                 ) => {
                     let with = parser_path(consts, with.as_ref());
+                    let name = name.value().to_uppercase();
+                    let from = from
+                        .as_ref()
+                        .map(|from| from.value())
+                        .unwrap_or_else(|| format!("{prefix}{name}"));
 
                     quote! {
                         let #ident = if let Some(inner) = self.#ident {
@@ -287,12 +304,18 @@ impl FromEnvReceiver {
                 (
                     EnvAttribute::Flat {
                         from,
+                        name,
                         with,
                         default: None,
                     },
                     false,
                 ) => {
                     let with = parser_path(consts, with.as_ref());
+                    let name = name.value().to_uppercase();
+                    let from = from
+                        .as_ref()
+                        .map(|from| from.value())
+                        .unwrap_or_else(|| format!("{prefix}{name}"));
 
                     quote! {
                     let #ident = if let Some(inner) = self.#ident {
@@ -326,12 +349,18 @@ impl FromEnvReceiver {
                 (
                     EnvAttribute::Flat {
                         from,
+                        name,
                         with,
                         default: None,
                     },
                     true,
                 ) => {
                     let with = parser_path(consts, with.as_ref());
+                    let name = name.value().to_uppercase();
+                    let from = from
+                        .as_ref()
+                        .map(|from| from.value())
+                        .unwrap_or_else(|| format!("{prefix}{name}"));
 
                     quote! {
                         let #ident = if let Some(inner) = self.#ident {
@@ -359,6 +388,7 @@ impl FromEnvReceiver {
                 // #[env(default = "...")] field: Option<T>
                 (
                     EnvAttribute::Flat {
+                        name: _,
                         from: _,
                         with: _,
                         default: Some(_),

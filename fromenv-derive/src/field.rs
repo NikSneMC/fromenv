@@ -21,7 +21,8 @@ pub struct FromEnvFieldReceiver {
 pub enum EnvAttribute {
     /// #[env(from = "...")]
     Flat {
-        from: LitStr,
+        name: LitStr,
+        from: Option<LitStr>,
         default: Option<LitStr>,
         with: Option<ExprPath>,
     },
@@ -43,13 +44,14 @@ impl FromField for FromEnvFieldReceiver {
         let ty = field.ty.to_owned();
         let option = parse_option(&ty).map(ToOwned::to_owned);
 
+        let mut rename: Option<Override<LitStr>> = None;
         let mut from: Option<Override<LitStr>> = None;
         let mut default: Option<LitStr> = None;
         let mut with: Option<ExprPath> = None;
         let mut nested = Flag::default();
+        let mut ignored = Flag::default();
 
         let mut default_path_span = Span::call_site();
-        let mut with_path_span = Span::call_site();
 
         let mut doc_attrs = Vec::new();
 
@@ -87,6 +89,13 @@ impl FromField for FromEnvFieldReceiver {
                                 accumulator.push(e);
                             }
                         }
+                    } else if meta.path().is_ident("rename") {
+                        match FromMeta::from_meta(&meta) {
+                            Ok(v) => rename = Some(v),
+                            Err(e) => {
+                                accumulator.push(e);
+                            }
+                        }
                     } else if meta.path().is_ident("default") {
                         default_path_span = meta.path().span();
                         match FromMeta::from_meta(&meta) {
@@ -96,7 +105,6 @@ impl FromField for FromEnvFieldReceiver {
                             }
                         }
                     } else if meta.path().is_ident("with") {
-                        with_path_span = meta.path().span();
                         match FromMeta::from_meta(&meta) {
                             Ok(v) => with = Some(v),
                             Err(e) => {
@@ -106,6 +114,13 @@ impl FromField for FromEnvFieldReceiver {
                     } else if meta.path().is_ident("nested") {
                         match FromMeta::from_meta(&meta) {
                             Ok(v) => nested = v,
+                            Err(e) => {
+                                accumulator.push(e);
+                            }
+                        }
+                    } else if meta.path().is_ident("ignored") {
+                        match FromMeta::from_meta(&meta) {
+                            Ok(v) => ignored = v,
                             Err(e) => {
                                 accumulator.push(e);
                             }
@@ -121,54 +136,50 @@ impl FromField for FromEnvFieldReceiver {
             }
         }
 
+        const IGNORED_CLASH: &str = "`ignored` cannot be used with other attributes";
         const NESTED_CLASH: &str = "`nested` cannot be used with other attributes";
-        const DEFAULT_WITHOUT_ENV: &str = "`default` cannot be used without `from`";
-        const WITH_WITHOUT_ENV: &str = "`with` cannot be used without `from`";
         const OPTION_WIH_DEFAULT: &str = "Optional fields cannot have a default";
 
-        match (from, default, with, nested.is_present()) {
-            (Some(_), _, _, true) | (_, Some(_), _, true) | (_, _, Some(_), true) => {
+        match (
+            from,
+            rename,
+            default,
+            with,
+            nested.is_present(),
+            ignored.is_present(),
+        ) {
+            (Some(_), _, _, _, _, true)
+            | (_, Some(_), _, _, _, true)
+            | (_, _, Some(_), _, _, true)
+            | (_, _, _, Some(_), _, true)
+            | (_, _, _, _, true, true) => {
+                accumulator.push(darling::Error::custom(IGNORED_CLASH).with_span(&ignored.span()));
+
+                Err(accumulator.finish().unwrap_err())
+            }
+            (Some(_), _, _, _, true, _)
+            | (_, Some(_), _, _, true, _)
+            | (_, _, Some(_), _, true, _)
+            | (_, _, _, Some(_), true, _) => {
                 accumulator.push(darling::Error::custom(NESTED_CLASH).with_span(&nested.span()));
 
                 Err(accumulator.finish().unwrap_err())
             }
-            (None, Some(_), None, false) => {
-                accumulator.push(
-                    darling::Error::custom(DEFAULT_WITHOUT_ENV).with_span(&default_path_span),
-                );
-
-                Err(accumulator.finish().unwrap_err())
-            }
-            (None, None, Some(_), false) => {
-                accumulator
-                    .push(darling::Error::custom(WITH_WITHOUT_ENV).with_span(&with_path_span));
-
-                Err(accumulator.finish().unwrap_err())
-            }
-            (None, Some(_), Some(_), false) => {
-                accumulator.push(
-                    darling::Error::custom(DEFAULT_WITHOUT_ENV).with_span(&default_path_span),
-                );
-                accumulator
-                    .push(darling::Error::custom(WITH_WITHOUT_ENV).with_span(&with_path_span));
-
-                Err(accumulator.finish().unwrap_err())
-            }
-            (None, None, None, false) => accumulator.finish_with(Self {
+            (None, None, None, None, false, true) => accumulator.finish_with(Self {
                 ident,
                 ty,
                 option,
                 doc_attrs,
                 env_attr: EnvAttribute::None,
             }),
-            (None, None, None, true) => accumulator.finish_with(Self {
+            (None, None, None, None, true, false) => accumulator.finish_with(Self {
                 ident,
                 ty,
                 option,
                 doc_attrs,
                 env_attr: EnvAttribute::Nested,
             }),
-            (Some(from), default, with, false) => {
+            (from, rename, default, with, false, false) => {
                 if option.is_some() && default.is_some() {
                     let err =
                         darling::Error::custom(OPTION_WIH_DEFAULT).with_span(&default_path_span);
@@ -176,9 +187,13 @@ impl FromField for FromEnvFieldReceiver {
                     accumulator.push(err);
                 }
 
-                let from = from.unwrap_or_else(|| {
-                    LitStr::new(&ident.to_string().to_uppercase(), ident.span())
-                });
+                let default_name = || LitStr::new(&ident.to_string().to_uppercase(), ident.span());
+                let name = match rename {
+                    None => default_name(),
+                    Some(rename) => rename.unwrap_or_else(default_name),
+                };
+
+                let from = from.map(|from| from.unwrap_or_else(default_name));
 
                 accumulator.finish_with(Self {
                     ident,
@@ -186,6 +201,7 @@ impl FromField for FromEnvFieldReceiver {
                     option,
                     doc_attrs,
                     env_attr: EnvAttribute::Flat {
+                        name,
                         from,
                         default,
                         with,

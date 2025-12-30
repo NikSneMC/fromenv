@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+
+- `env` attribute with optional `prefix` parameter for structs
+- `rename` parameter for per-field renames that keeps struct prefix
+- `ignored` parameter for replicating old `env` absence behavior on fields
+
+### Changed
+- fields without `env` attribute could be set using environment wariables unless `ignored` parameter is present
+- `from` parameter now overrides variable name and struct prefix
+- `default` and `with` now could be used without `from`
 
 ## [0.1.0](https://github.com/ollyswanson/fromenv/releases/tag/fromenv-derive-v0.1.0) - 2025-08-10
 
