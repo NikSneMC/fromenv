@@ -129,10 +129,12 @@ impl FromEnvReceiver {
 
         quote! {
             impl #struct_name {
+                #[allow(clippy::same_name_method)]
                 pub fn from_env() -> #builder_name {
                     <Self as #private_path::FromEnv>::from_env()
                 }
 
+                #[allow(clippy::same_name_method)]
                 pub fn requirements() -> String {
                     let mut requirements = ::std::string::String::new();
                     <Self as #private_path::FromEnv>::requirements(&mut requirements);
@@ -487,6 +489,7 @@ impl FromEnvReceiver {
             impl #builder_name {
                 #(#setters)*
 
+                #[allow(clippy::same_name_method)]
                 pub fn finalize(self) -> Result<<Self as #private_path::FromEnvBuilder>::Target, #private_path::FromEnvErrors> {
                     #private_path::FromEnvBuilder::finalize(self)
                 }
